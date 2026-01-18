@@ -9,11 +9,27 @@ import { useRouter } from 'next/navigation';
 import { BigButton, CoinDisplay, GameCard } from '@/components/ui';
 import { ClothingPreview, CustomerAvatar } from '@/components/shared';
 import { useGameStore, useInventoryStore } from '@/stores';
+import { useHydration } from '@/lib/useHydration';
 
 export default function ResultsPage() {
   const router = useRouter();
+  const hydrated = useHydration();
   const { currentWaveResult, totalMoney } = useGameStore();
   const itemCount = useInventoryStore((state) => state.items.length);
+
+  if (!hydrated) {
+    return (
+      <main className="bg-results min-h-screen flex items-center justify-center">
+        <motion.div
+          className="text-6xl"
+          animate={{ rotate: 360 }}
+          transition={{ repeat: Infinity, duration: 2, ease: 'linear' }}
+        >
+          🎉
+        </motion.div>
+      </main>
+    );
+  }
 
   // If no results, redirect to home
   if (!currentWaveResult) {

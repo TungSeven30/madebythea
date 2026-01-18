@@ -1,18 +1,35 @@
 'use client';
 
 /**
- * Home Screen - Main menu for Thea's Clothing Store Game
+ * Home Screen - Main menu for Made by Thea
  */
 
 import { motion } from 'framer-motion';
 import { useRouter } from 'next/navigation';
 import { BigButton, CoinDisplay, GameCard } from '@/components/ui';
 import { useGameStore, useInventoryStore } from '@/stores';
+import { useHydration } from '@/lib/useHydration';
 
 export default function HomePage() {
   const router = useRouter();
+  const hydrated = useHydration();
   const totalMoney = useGameStore((state) => state.totalMoney);
   const itemCount = useInventoryStore((state) => state.items.length);
+
+  // Show loading state until hydrated to prevent mismatch
+  if (!hydrated) {
+    return (
+      <main className="bg-home min-h-screen flex items-center justify-center">
+        <motion.div
+          className="text-6xl"
+          animate={{ rotate: 360 }}
+          transition={{ repeat: Infinity, duration: 2, ease: 'linear' }}
+        >
+          ✨
+        </motion.div>
+      </main>
+    );
+  }
 
   return (
     <main className="bg-home min-h-screen flex flex-col items-center justify-center p-8">

@@ -10,6 +10,7 @@ import { useRouter } from 'next/navigation';
 import { BigButton, CoinDisplay, Timer, GameCard } from '@/components/ui';
 import { ClothesRack, CustomerDisplay, SaleResult } from '@/components/store';
 import { useGameStore, useInventoryStore } from '@/stores';
+import { useHydration } from '@/lib/useHydration';
 import { ALL_CUSTOMERS, type Customer } from '@/types';
 import { doesItemMatchCustomer, getPriceInCoins, selectRandomCustomers } from '@/lib/matching';
 
@@ -25,6 +26,7 @@ interface SaleResultData {
 
 export default function StorePage() {
   const router = useRouter();
+  const hydrated = useHydration();
   const items = useInventoryStore((state) => state.items);
   const removeItem = useInventoryStore((state) => state.removeItem);
   const { settings, startWave, endWave, totalMoney, currentWave, addMoney } = useGameStore();
@@ -161,6 +163,20 @@ export default function StorePage() {
       setPhase('playing');
     }
   };
+
+  if (!hydrated) {
+    return (
+      <main className="bg-store min-h-screen flex items-center justify-center">
+        <motion.div
+          className="text-6xl"
+          animate={{ rotate: 360 }}
+          transition={{ repeat: Infinity, duration: 2, ease: 'linear' }}
+        >
+          🏪
+        </motion.div>
+      </main>
+    );
+  }
 
   return (
     <main className="bg-store min-h-screen flex flex-col p-4">

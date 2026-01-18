@@ -17,6 +17,7 @@ import {
   PricePicker,
 } from '@/components/workshop';
 import { useInventoryStore } from '@/stores';
+import { useHydration } from '@/lib/useHydration';
 import type { ClothingShape, ClothingColor, ClothingPattern, PriceLevel } from '@/types';
 
 type WorkshopStep = 'shape' | 'color' | 'pattern' | 'price' | 'done';
@@ -33,6 +34,7 @@ const stepEmojis: Record<WorkshopStep, string> = {
 
 export default function WorkshopPage() {
   const router = useRouter();
+  const hydrated = useHydration();
   const addItem = useInventoryStore((state) => state.addItem);
   const itemCount = useInventoryStore((state) => state.items.length);
 
@@ -83,6 +85,20 @@ export default function WorkshopPage() {
       setPrice(1);
     }, 1500);
   };
+
+  if (!hydrated) {
+    return (
+      <main className="bg-workshop min-h-screen flex items-center justify-center">
+        <motion.div
+          className="text-6xl"
+          animate={{ rotate: 360 }}
+          transition={{ repeat: Infinity, duration: 2, ease: 'linear' }}
+        >
+          🎨
+        </motion.div>
+      </main>
+    );
+  }
 
   return (
     <main className="bg-workshop min-h-screen flex flex-col p-6">
