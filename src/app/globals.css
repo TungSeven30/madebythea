@@ -3,25 +3,104 @@
 @tailwind utilities;
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #FFF5EE;
+  --foreground: #4A4A4A;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html,
+body {
+  height: 100%;
+  overflow: hidden;
 }
 
 body {
   color: var(--foreground);
   background: var(--background);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: 'Comic Sans MS', 'Chalkboard SE', 'Arial Rounded MT Bold', Arial, sans-serif;
+
+  /* iPad Safari optimizations */
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+  touch-action: manipulation;
+  overscroll-behavior: none;
 }
 
-@layer utilities {
-  .text-balance {
-    text-wrap: balance;
+/* Prevent pull-to-refresh on mobile */
+html {
+  overscroll-behavior: none;
+}
+
+/* Make everything feel more touchable */
+button,
+[role='button'] {
+  touch-action: manipulation;
+  cursor: pointer;
+}
+
+/* Disable text selection on game elements */
+.no-select {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* Smooth scrolling for any scrollable areas */
+.scroll-smooth {
+  -webkit-overflow-scrolling: touch;
+  scroll-behavior: smooth;
+}
+
+/* Animation for floating elements */
+@keyframes float {
+  0%,
+  100% {
+    transform: translateY(0);
   }
+  50% {
+    transform: translateY(-10px);
+  }
+}
+
+.animate-float {
+  animation: float 3s ease-in-out infinite;
+}
+
+/* Sparkle animation */
+@keyframes sparkle {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.5;
+    transform: scale(1.2);
+  }
+}
+
+.animate-sparkle {
+  animation: sparkle 1.5s ease-in-out infinite;
+}
+
+/* Background gradients */
+.bg-home {
+  background: linear-gradient(135deg, #FFB6C1 0%, #E6E6FA 100%);
+}
+
+.bg-workshop {
+  background: linear-gradient(135deg, #E6E6FA 0%, #87CEEB 100%);
+}
+
+.bg-store {
+  background: linear-gradient(135deg, #FFE4B5 0%, #FFB6C1 100%);
+}
+
+.bg-results {
+  background: linear-gradient(135deg, #98FB98 0%, #87CEEB 100%);
+}
+
+/* Prevent zoom on double-tap */
+* {
+  touch-action: manipulation;
 }
