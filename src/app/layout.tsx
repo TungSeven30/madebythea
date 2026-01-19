@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from 'next';
 import './globals.css';
+import { AudioProvider } from '@/providers/AudioProvider';
 
 export const metadata: Metadata = {
   title: 'Made by Thea',
@@ -26,7 +27,9 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className="antialiased min-h-screen">{children}</body>
+      <body className="antialiased min-h-screen">
+        <AudioProvider>{children}</AudioProvider>
+      </body>
     </html>
   );
 }

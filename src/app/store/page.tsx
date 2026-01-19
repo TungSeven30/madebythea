@@ -7,7 +7,7 @@
 
 import { useState, useEffect, useCallback, useRef, Suspense } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import { BigButton, CoinDisplay, Timer, GameCard } from '@/components/ui';
 import { ClothesRack, CustomerDisplay, SaleResult, MakeItButton } from '@/components/store';
 import { useGameStore, useInventoryStore, useAchievementTracker, useUpgradeStore, XP_REWARDS } from '@/stores';
@@ -41,13 +41,10 @@ const MAKE_TO_ORDER_PATIENCE_MULTIPLIER = 0.5;
 const VIP_CHANCE = 0.2;
 
 /**
- * Inner component that uses search params
- * Wrapped in Suspense for Next.js App Router requirements
+ * Inner store content component
  */
 function StoreContent() {
   const router = useRouter();
-  // searchParams reserved for future URL-based features
-  useSearchParams();
   const hydrated = useHydration();
   const { playSfx, playBgm, stopBgm } = useAudio();
   const { coinBurst, softFail } = useParticles();
@@ -201,15 +198,18 @@ function StoreContent() {
 
     patienceIntervalRef.current = setInterval(() => {
       setCustomers((prev) => {
+        // Pre-compute visible customer IDs for O(1) lookup instead of O(n) per customer
+        const visibleIds = new Set(
+          prev
+            .filter((c) => !servedCustomerIds.has(c.id))
+            .slice(0, 3)
+            .map((c) => c.id)
+        );
+
         const updated = prev.map((c) => {
           // Only decrease patience for visible customers
           if (servedCustomerIds.has(c.id)) return c;
-          const isVisible = prev
-            .filter((pc) => !servedCustomerIds.has(pc.id))
-            .slice(0, 3)
-            .some((vc) => vc.id === c.id);
-
-          if (!isVisible) return c;
+          if (!visibleIds.has(c.id)) return c;
 
           // Apply make-to-order slowdown if customer is reserved
           const decayMultiplier = c.makeToOrder?.isWaitingForOrder
@@ -632,8 +632,7 @@ function StoreContent() {
 }
 
 /**
- * Store page wrapper with Suspense boundary
- * Required for useSearchParams in Next.js App Router
+ * Store page with loading fallback
  */
 export default function StorePage() {
   return (

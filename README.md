@@ -1,6 +1,6 @@
 # ✨ Made by Thea
 
-A creative maker game designed for young children (ages 4-6). Create items in the Workshop, then sell them to family members in the Store during timed rush waves.
+A creative maker game designed for young children (ages 6-9). Create items in the Workshop, then sell them to family members in the Store during timed rush waves.
 
 Currently features a **Clothing Store** module where players design clothes and sell them to customers.
 

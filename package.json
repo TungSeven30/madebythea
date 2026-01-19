@@ -9,8 +9,12 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@types/canvas-confetti": "^1.9.0",
+    "@types/howler": "^2.2.12",
+    "canvas-confetti": "^1.9.4",
     "fabric": "^6.9.1",
     "framer-motion": "^11.18.2",
+    "howler": "^2.2.4",
     "next": "14.2.35",
     "react": "^18",
     "react-dom": "^18",

@@ -4,18 +4,35 @@
  * Results Page - Wave summary
  */
 
+import { useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { useRouter } from 'next/navigation';
 import { BigButton, CoinDisplay, GameCard } from '@/components/ui';
 import { ClothingPreview, CustomerAvatar } from '@/components/shared';
 import { useGameStore, useInventoryStore } from '@/stores';
 import { useHydration } from '@/lib/useHydration';
+import { useParticles } from '@/hooks/useParticles';
+import { useAudio } from '@/hooks/useAudio';
 
 export default function ResultsPage() {
   const router = useRouter();
   const hydrated = useHydration();
+  const { celebration } = useParticles();
+  const { playSfx } = useAudio();
   const { currentWaveResult, totalMoney } = useGameStore();
   const itemCount = useInventoryStore((state) => state.items.length);
+
+  // Celebrate on mount if there are successful sales
+  useEffect(() => {
+    if (hydrated && currentWaveResult && currentWaveResult.itemsSold > 0) {
+      // Small delay to let the page render first
+      const timer = setTimeout(() => {
+        celebration();
+        playSfx('success');
+      }, 300);
+      return () => clearTimeout(timer);
+    }
+  }, [hydrated, currentWaveResult, celebration, playSfx]);
 
   if (!hydrated) {
     return (

@@ -5,7 +5,8 @@
  */
 
 import { motion } from 'framer-motion';
-import { ReactNode } from 'react';
+import { ReactNode, useCallback } from 'react';
+import { useClickSound } from '@/hooks/useAudio';
 
 interface BigButtonProps {
   onClick: () => void;
@@ -14,6 +15,8 @@ interface BigButtonProps {
   disabled?: boolean;
   size?: 'normal' | 'large' | 'huge';
   className?: string;
+  /** Set to true to skip the click sound (useful for custom sounds) */
+  silent?: boolean;
 }
 
 const colorStyles: Record<string, string> = {
@@ -38,10 +41,20 @@ export function BigButton({
   disabled = false,
   size = 'normal',
   className = '',
+  silent = false,
 }: BigButtonProps) {
+  const playClick = useClickSound();
+
+  const handleClick = useCallback(() => {
+    if (!disabled) {
+      if (!silent) playClick();
+      onClick();
+    }
+  }, [disabled, silent, playClick, onClick]);
+
   return (
     <motion.button
-      onClick={onClick}
+      onClick={handleClick}
       disabled={disabled}
       className={`
         rounded-2xl border-4 font-bold shadow-lg
