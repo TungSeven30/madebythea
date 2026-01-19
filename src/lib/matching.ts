@@ -99,3 +99,24 @@ export function selectRandomCustomers(
   const shuffled = [...allCustomers].sort(() => Math.random() - 0.5);
   return shuffled.slice(0, count);
 }
+
+/**
+ * Check if any item in inventory matches a customer's preferences
+ * Used to determine whether to show "Make It!" button
+ */
+export function hasMatchingItem(
+  items: ClothingItem[],
+  customer: Customer
+): boolean {
+  return items.some((item) => doesItemMatchCustomer(item, customer).matches);
+}
+
+/**
+ * Find a customer by ID from a list
+ */
+export function findCustomerById(
+  customers: Customer[],
+  customerId: string
+): Customer | undefined {
+  return customers.find((c) => c.id === customerId);
+}

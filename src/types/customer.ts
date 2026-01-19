@@ -22,6 +22,64 @@ export interface Customer {
 }
 
 /**
+ * Customer mood state - changes based on patience
+ */
+export type CustomerMood = 'happy' | 'neutral' | 'impatient';
+
+/**
+ * Customer modifiers for special customers
+ */
+export interface CustomerModifiers {
+  isVIP?: boolean;      // 2x pay, gold border
+  groupSize?: number;   // Buys multiple items (future)
+}
+
+/**
+ * Make-to-order state for customers waiting for custom items
+ */
+export interface MakeToOrderState {
+  isWaitingForOrder: boolean;
+  orderStartedAt: number;  // Timestamp when order started
+}
+
+/**
+ * Runtime customer state - used during gameplay
+ */
+export interface RuntimeCustomer extends Customer {
+  mood: CustomerMood;
+  patience: number;       // 0-100, decreases over time
+  maxPatience: number;    // Starting patience
+  modifiers: CustomerModifiers;
+  makeToOrder?: MakeToOrderState;  // Present when customer is reserved for make-to-order
+}
+
+/**
+ * Create a runtime customer from a static customer definition
+ */
+export function createRuntimeCustomer(
+  customer: Customer,
+  modifiers: CustomerModifiers = {}
+): RuntimeCustomer {
+  const maxPatience = modifiers.isVIP ? 80 : 100; // VIPs are more demanding
+  return {
+    ...customer,
+    mood: 'happy',
+    patience: maxPatience,
+    maxPatience,
+    modifiers,
+  };
+}
+
+/**
+ * Calculate mood based on patience level
+ */
+export function getMoodFromPatience(patience: number): CustomerMood {
+  if (patience > 60) return 'happy';
+  if (patience > 30) return 'neutral';
+  return 'impatient';
+}
+
+/**
  * Family members - will use stylized photos
  */
 export const FAMILY_CUSTOMERS: Customer[] = [
@@ -77,6 +135,47 @@ export const FAMILY_CUSTOMERS: Customer[] = [
 ];
 
 /**
- * All customers (only those with images for now)
+ * Creature customers - magical friends!
  */
-export const ALL_CUSTOMERS: Customer[] = [...FAMILY_CUSTOMERS];
+export const CREATURE_CUSTOMERS: Customer[] = [
+  {
+    type: 'creature',
+    id: 'unicorn',
+    displayName: 'Sparkle',
+    avatar: '🦄',  // Emoji avatar for creatures
+    wants: { colors: ['pink', 'purple', 'white'], maxPrice: 3 },
+  },
+  {
+    type: 'creature',
+    id: 'dragon',
+    displayName: 'Blaze',
+    avatar: '🐉',
+    wants: { colors: ['red', 'orange', 'yellow'], maxPrice: 3 },
+  },
+  {
+    type: 'creature',
+    id: 'bunny',
+    displayName: 'Fluffy',
+    avatar: '🐰',
+    wants: { colors: ['white', 'pink', 'blue'], maxPrice: 2 },
+  },
+  {
+    type: 'creature',
+    id: 'cat',
+    displayName: 'Whiskers',
+    avatar: '🐱',
+    wants: { shapes: ['dress', 'skirt'], maxPrice: 2 },
+  },
+  {
+    type: 'creature',
+    id: 'bear',
+    displayName: 'Honey',
+    avatar: '🧸',
+    wants: { colors: ['yellow', 'orange', 'red'], maxPrice: 2 },
+  },
+];
+
+/**
+ * All customers
+ */
+export const ALL_CUSTOMERS: Customer[] = [...FAMILY_CUSTOMERS, ...CREATURE_CUSTOMERS];

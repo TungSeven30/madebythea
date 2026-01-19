@@ -2,17 +2,26 @@
 
 /**
  * Store Page - Rush mode gameplay
+ * Features patience system, VIP customers, upgrade bonuses, and make-to-order
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef, Suspense } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { BigButton, CoinDisplay, Timer, GameCard } from '@/components/ui';
-import { ClothesRack, CustomerDisplay, SaleResult } from '@/components/store';
-import { useGameStore, useInventoryStore } from '@/stores';
+import { ClothesRack, CustomerDisplay, SaleResult, MakeItButton } from '@/components/store';
+import { useGameStore, useInventoryStore, useAchievementTracker, useUpgradeStore, XP_REWARDS } from '@/stores';
 import { useHydration } from '@/lib/useHydration';
-import { ALL_CUSTOMERS, type Customer } from '@/types';
-import { doesItemMatchCustomer, getPriceInCoins, selectRandomCustomers } from '@/lib/matching';
+import { useAudio } from '@/hooks/useAudio';
+import { useParticles } from '@/hooks/useParticles';
+import { CoinBurst } from '@/components/effects';
+import {
+  ALL_CUSTOMERS,
+  type RuntimeCustomer,
+  createRuntimeCustomer,
+  getMoodFromPatience,
+} from '@/types';
+import { doesItemMatchCustomer, getPriceInCoins, selectRandomCustomers, hasMatchingItem } from '@/lib/matching';
 
 type GamePhase = 'ready' | 'playing' | 'result' | 'ended';
 
@@ -24,20 +33,72 @@ interface SaleResultData {
   customerId: string;
 }
 
-export default function StorePage() {
+// Patience decrease per second (base rate)
+const PATIENCE_DECAY_PER_SECOND = 2;
+// Make-to-order patience decay multiplier (50% slower)
+const MAKE_TO_ORDER_PATIENCE_MULTIPLIER = 0.5;
+// VIP chance (20% of customers)
+const VIP_CHANCE = 0.2;
+
+/**
+ * Inner component that uses search params
+ * Wrapped in Suspense for Next.js App Router requirements
+ */
+function StoreContent() {
   const router = useRouter();
+  // searchParams reserved for future URL-based features
+  useSearchParams();
   const hydrated = useHydration();
+  const { playSfx, playBgm, stopBgm } = useAudio();
+  const { coinBurst, softFail } = useParticles();
+  const achievementTracker = useAchievementTracker();
   const items = useInventoryStore((state) => state.items);
   const removeItem = useInventoryStore((state) => state.removeItem);
-  const { settings, startWave, endWave, totalMoney, currentWave, addMoney } = useGameStore();
+  const {
+    settings,
+    startWave,
+    endWave,
+    totalMoney,
+    currentWave,
+    addMoney,
+    addXP,
+    makeToOrderCustomerId,
+    clearMakeToOrder,
+  } = useGameStore();
+
+  // Upgrade bonuses
+  const getWaveTimeBonus = useUpgradeStore((state) => state.getWaveTimeBonus);
+  const getTipBonus = useUpgradeStore((state) => state.getTipBonus);
+
+  // Calculate wave duration with upgrade bonus
+  const waveDuration = settings.waveDuration + getWaveTimeBonus();
+  const tipBonus = getTipBonus();
+
+  // Play store BGM on mount
+  useEffect(() => {
+    playBgm('store-loop');
+    return () => stopBgm();
+  }, [playBgm, stopBgm]);
 
   const [phase, setPhase] = useState<GamePhase>('ready');
-  const [timeLeft, setTimeLeft] = useState(settings.waveDuration);
-  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [timeLeft, setTimeLeft] = useState(waveDuration);
+  const [customers, setCustomers] = useState<RuntimeCustomer[]>([]);
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   const [saleResult, setSaleResult] = useState<SaleResultData | null>(null);
   const [waveSales, setWaveSales] = useState<SaleResultData[]>([]);
   const [servedCustomerIds, setServedCustomerIds] = useState<Set<string>>(new Set());
+  const [showCoinBurst, setShowCoinBurst] = useState<number | null>(null);
+  const [impatientLeft, setImpatientLeft] = useState<string | null>(null);
+
+  // Make-to-order state
+  const [showMakeItFor, setShowMakeItFor] = useState<string | null>(null);
+  const [makeToOrderReturnMessage, setMakeToOrderReturnMessage] = useState<string | null>(null);
+
+  // Track item count to detect when new item is created
+  const previousItemCountRef = useRef(items.length);
+
+  // Ref for patience interval
+  const patienceIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   // Available items (not sold yet)
   const availableItems = items.slice(0, 6);
@@ -47,16 +108,69 @@ export default function StorePage() {
     .filter((c) => !servedCustomerIds.has(c.id))
     .slice(0, 3);
 
+  // Handle return from workshop with make-to-order
+  useEffect(() => {
+    if (!hydrated || !makeToOrderCustomerId) return;
+
+    // Check if we're returning from workshop (new item was added)
+    const currentItemCount = items.length;
+    const previousItemCount = previousItemCountRef.current;
+
+    if (currentItemCount > previousItemCount && phase === 'playing') {
+      // New item was created! Find the newest item
+      const newestItem = items[items.length - 1];
+
+      // Find the reserved customer
+      const reservedCustomer = customers.find((c) => c.id === makeToOrderCustomerId);
+
+      if (reservedCustomer && !servedCustomerIds.has(reservedCustomer.id)) {
+        // Customer is still here! Auto-select the new item
+        setSelectedItemId(newestItem.id);
+        playSfx('sparkle');
+
+        // Show delivery animation message
+        setMakeToOrderReturnMessage(`Delivered to ${reservedCustomer.displayName}! 🚀`);
+        setTimeout(() => setMakeToOrderReturnMessage(null), 2000);
+      } else {
+        // Customer left while crafting - friendly message
+        setMakeToOrderReturnMessage('Customer left, but you kept the item! 🎁');
+        setTimeout(() => setMakeToOrderReturnMessage(null), 3000);
+      }
+
+      // Clear the make-to-order state
+      clearMakeToOrder();
+
+      // Clear make-to-order flag on the customer
+      setCustomers((prev) =>
+        prev.map((c) =>
+          c.id === makeToOrderCustomerId ? { ...c, makeToOrder: undefined } : c
+        )
+      );
+    }
+
+    previousItemCountRef.current = currentItemCount;
+  }, [hydrated, items.length, makeToOrderCustomerId, customers, servedCustomerIds, phase, items, clearMakeToOrder, playSfx]);
+
   // Start the wave
   const handleStart = useCallback(() => {
-    const selectedCustomers = selectRandomCustomers(ALL_CUSTOMERS, 8);
-    setCustomers(selectedCustomers);
+    const selectedBase = selectRandomCustomers(ALL_CUSTOMERS, 8);
+
+    // Convert to runtime customers with random VIP status
+    const runtimeCustomers = selectedBase.map((c) => {
+      const isVIP = Math.random() < VIP_CHANCE;
+      return createRuntimeCustomer(c, { isVIP });
+    });
+
+    setCustomers(runtimeCustomers);
     setPhase('playing');
-    setTimeLeft(settings.waveDuration);
+    setTimeLeft(waveDuration);
     setWaveSales([]);
     setServedCustomerIds(new Set());
+    setImpatientLeft(null);
+    setShowMakeItFor(null);
+    previousItemCountRef.current = items.length;
     startWave();
-  }, [settings.waveDuration, startWave]);
+  }, [waveDuration, startWave, items.length]);
 
   // Timer countdown
   useEffect(() => {
@@ -75,9 +189,86 @@ export default function StorePage() {
     return () => clearInterval(timer);
   }, [phase]);
 
+  // Patience countdown for visible customers
+  useEffect(() => {
+    if (phase !== 'playing') {
+      if (patienceIntervalRef.current) {
+        clearInterval(patienceIntervalRef.current);
+        patienceIntervalRef.current = null;
+      }
+      return;
+    }
+
+    patienceIntervalRef.current = setInterval(() => {
+      setCustomers((prev) => {
+        const updated = prev.map((c) => {
+          // Only decrease patience for visible customers
+          if (servedCustomerIds.has(c.id)) return c;
+          const isVisible = prev
+            .filter((pc) => !servedCustomerIds.has(pc.id))
+            .slice(0, 3)
+            .some((vc) => vc.id === c.id);
+
+          if (!isVisible) return c;
+
+          // Apply make-to-order slowdown if customer is reserved
+          const decayMultiplier = c.makeToOrder?.isWaitingForOrder
+            ? MAKE_TO_ORDER_PATIENCE_MULTIPLIER
+            : 1;
+
+          const newPatience = Math.max(
+            0,
+            c.patience - PATIENCE_DECAY_PER_SECOND * decayMultiplier
+          );
+          return {
+            ...c,
+            patience: newPatience,
+            mood: getMoodFromPatience(newPatience),
+          };
+        });
+
+        // Check if any visible customer ran out of patience
+        const leftCustomer = updated.find(
+          (c) =>
+            c.patience === 0 &&
+            !servedCustomerIds.has(c.id) &&
+            prev.find((pc) => pc.id === c.id)?.patience !== 0
+        );
+
+        if (leftCustomer) {
+          // Customer left due to impatience - mark as served
+          setServedCustomerIds((s) => new Set(s).add(leftCustomer.id));
+
+          // Check if this was a make-to-order customer
+          if (leftCustomer.makeToOrder?.isWaitingForOrder) {
+            setImpatientLeft(`${leftCustomer.displayName} couldn't wait!`);
+          } else {
+            setImpatientLeft(`${leftCustomer.displayName} got tired of waiting!`);
+          }
+          playSfx('fail');
+
+          // Clear the notification after a delay
+          setTimeout(() => setImpatientLeft(null), 2000);
+        }
+
+        return updated;
+      });
+    }, 1000);
+
+    return () => {
+      if (patienceIntervalRef.current) {
+        clearInterval(patienceIntervalRef.current);
+        patienceIntervalRef.current = null;
+      }
+    };
+  }, [phase, servedCustomerIds, playSfx]);
+
   // End wave when time's up or all customers served
   useEffect(() => {
     if (phase === 'ended') {
+      // Clear any make-to-order state when wave ends
+      clearMakeToOrder();
+
       const successfulSales = waveSales.filter((s) => s.success);
       const failedSales = waveSales.filter((s) => !s.success);
 
@@ -96,28 +287,65 @@ export default function StorePage() {
         itemsNotSold: failedSales.length,
       });
 
+      // Track wave achievements
+      achievementTracker.trackWaveSales(successfulSales.length, waveSales.length);
+
+      // Track unique customers served
+      const uniqueCustomers = new Set(successfulSales.map((s) => s.customerId));
+      achievementTracker.trackUniqueCustomers(uniqueCustomers);
+
+      // Grant XP for wave completion
+      if (successfulSales.length > 0) {
+        addXP(XP_REWARDS.waveComplete);
+      }
+
       // Navigate to results after a short delay
       setTimeout(() => {
         router.push('/results');
       }, 500);
     }
-  }, [phase, waveSales, customers, items, currentWave, endWave, router]);
+  }, [phase, waveSales, customers, items, currentWave, endWave, router, achievementTracker, addXP, clearMakeToOrder]);
 
   // Handle clothing selection
   const handleSelectItem = (itemId: string) => {
     if (phase !== 'playing') return;
     setSelectedItemId(selectedItemId === itemId ? null : itemId);
+    // Clear make-it prompt when selecting an item
+    setShowMakeItFor(null);
   };
 
-  // Handle customer tap (attempt sale)
-  const handleCustomerTap = (customer: Customer) => {
-    if (phase !== 'playing' || !selectedItemId) return;
+  // Handle customer tap (attempt sale or show make-it button)
+  const handleCustomerTap = (customer: RuntimeCustomer) => {
+    if (phase !== 'playing') return;
+
+    // If no item selected, check if we should show the MakeIt button
+    if (!selectedItemId) {
+      // Check if there's any matching item in inventory
+      if (!hasMatchingItem(availableItems, customer)) {
+        // No matching item - show MakeIt button
+        setShowMakeItFor(showMakeItFor === customer.id ? null : customer.id);
+      }
+      return;
+    }
+
+    // Clear make-it prompt
+    setShowMakeItFor(null);
 
     const item = items.find((i) => i.id === selectedItemId);
     if (!item) return;
 
     const matchResult = doesItemMatchCustomer(item, customer);
-    const coins = getPriceInCoins(item.price);
+    let coins = getPriceInCoins(item.price);
+
+    // Apply bonuses if successful
+    if (matchResult.matches) {
+      // VIP bonus (2x)
+      if (customer.modifiers.isVIP) {
+        coins *= 2;
+      }
+      // Tip jar bonus
+      coins += tipBonus;
+    }
 
     const result: SaleResultData = {
       success: matchResult.matches,
@@ -131,9 +359,38 @@ export default function StorePage() {
     setPhase('result');
   };
 
+  // Handle make-it button pressed - reserve customer and navigate to workshop
+  const handleMakeItStart = (customerId: string) => {
+    // Mark customer as reserved for make-to-order
+    setCustomers((prev) =>
+      prev.map((c) =>
+        c.id === customerId
+          ? {
+              ...c,
+              makeToOrder: {
+                isWaitingForOrder: true,
+                orderStartedAt: Date.now(),
+              },
+            }
+          : c
+      )
+    );
+    setShowMakeItFor(null);
+  };
+
   // Handle sale result dismissal
   const handleResultDone = () => {
     if (!saleResult) return;
+
+    // Play appropriate sound and particles
+    if (saleResult.success) {
+      playSfx('cha-ching');
+      coinBurst();
+      setShowCoinBurst(saleResult.coins ?? 0);
+    } else {
+      playSfx('fail');
+      softFail();
+    }
 
     // Add to wave sales
     setWaveSales((prev) => [...prev, saleResult]);
@@ -142,6 +399,13 @@ export default function StorePage() {
     if (saleResult.success) {
       removeItem(saleResult.itemId);
       addMoney(saleResult.coins ?? 0);
+
+      // Grant XP for successful sale
+      addXP(XP_REWARDS.saleSuccess);
+
+      // Track achievements
+      achievementTracker.trackSale();
+      achievementTracker.trackCoinsEarned(totalMoney + (saleResult.coins ?? 0));
     }
 
     // Mark customer as served
@@ -187,11 +451,39 @@ export default function StorePage() {
         </BigButton>
 
         {phase === 'playing' && (
-          <Timer seconds={timeLeft} totalSeconds={settings.waveDuration} />
+          <Timer seconds={timeLeft} totalSeconds={waveDuration} />
         )}
 
         <CoinDisplay amount={totalMoney} size="medium" />
       </div>
+
+      {/* Impatient customer notification */}
+      <AnimatePresence>
+        {impatientLeft && (
+          <motion.div
+            className="fixed top-20 left-1/2 -translate-x-1/2 bg-red-500 text-white px-6 py-3 rounded-full shadow-lg z-50"
+            initial={{ y: -50, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: -50, opacity: 0 }}
+          >
+            😤 {impatientLeft}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Make-to-order return notification */}
+      <AnimatePresence>
+        {makeToOrderReturnMessage && (
+          <motion.div
+            className="fixed top-20 left-1/2 -translate-x-1/2 bg-purple-500 text-white px-6 py-3 rounded-full shadow-lg z-50"
+            initial={{ y: -50, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: -50, opacity: 0 }}
+          >
+            {makeToOrderReturnMessage}
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Ready phase */}
       {phase === 'ready' && (
@@ -210,6 +502,21 @@ export default function StorePage() {
             <p className="text-lg text-gray-500">
               Match clothes to what they want! 👕→👤
             </p>
+            {/* Show active bonuses */}
+            {(tipBonus > 0 || getWaveTimeBonus() > 0) && (
+              <div className="mt-3 flex gap-3 justify-center">
+                {getWaveTimeBonus() > 0 && (
+                  <span className="bg-blue-100 text-blue-700 px-3 py-1 rounded-full text-sm">
+                    ⏰ +{getWaveTimeBonus()}s
+                  </span>
+                )}
+                {tipBonus > 0 && (
+                  <span className="bg-green-100 text-green-700 px-3 py-1 rounded-full text-sm">
+                    💵 +{tipBonus} coin/sale
+                  </span>
+                )}
+              </div>
+            )}
           </GameCard>
 
           <BigButton onClick={handleStart} color="green" size="huge" disabled={availableItems.length === 0}>
@@ -238,13 +545,26 @@ export default function StorePage() {
             <div className="flex justify-center gap-4 flex-wrap">
               <AnimatePresence mode="popLayout">
                 {visibleCustomers.map((customer) => (
-                  <CustomerDisplay
-                    key={customer.id}
-                    customer={customer}
-                    isSelected={false}
-                    onTap={() => handleCustomerTap(customer)}
-                    showBubble={true}
-                  />
+                  <div key={customer.id} className="flex flex-col items-center gap-2">
+                    <CustomerDisplay
+                      customer={customer}
+                      isSelected={false}
+                      onTap={() => handleCustomerTap(customer)}
+                      mood={customer.mood}
+                      showBubble={true}
+                      isMakingOrder={customer.makeToOrder?.isWaitingForOrder}
+                    />
+
+                    {/* Show MakeIt button for this customer */}
+                    <AnimatePresence>
+                      {showMakeItFor === customer.id && !customer.makeToOrder?.isWaitingForOrder && (
+                        <MakeItButton
+                          customer={customer}
+                          onMakeItStart={handleMakeItStart}
+                        />
+                      )}
+                    </AnimatePresence>
+                  </div>
                 ))}
               </AnimatePresence>
 
@@ -266,6 +586,16 @@ export default function StorePage() {
                 animate={{ opacity: 1 }}
               >
                 👆 Tap a customer to sell!
+              </motion.p>
+            )}
+
+            {!selectedItemId && showMakeItFor === null && (
+              <motion.p
+                className="text-center text-gray-500 mt-4"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+              >
+                Select an item below, or tap a customer to make something special!
               </motion.p>
             )}
           </GameCard>
@@ -290,6 +620,37 @@ export default function StorePage() {
           />
         )}
       </AnimatePresence>
+
+      {/* Coin burst effect */}
+      <CoinBurst
+        amount={showCoinBurst ?? 0}
+        show={showCoinBurst !== null}
+        onComplete={() => setShowCoinBurst(null)}
+      />
     </main>
+  );
+}
+
+/**
+ * Store page wrapper with Suspense boundary
+ * Required for useSearchParams in Next.js App Router
+ */
+export default function StorePage() {
+  return (
+    <Suspense
+      fallback={
+        <main className="bg-store min-h-screen flex items-center justify-center">
+          <motion.div
+            className="text-6xl"
+            animate={{ rotate: 360 }}
+            transition={{ repeat: Infinity, duration: 2, ease: 'linear' }}
+          >
+            🏪
+          </motion.div>
+        </main>
+      }
+    >
+      <StoreContent />
+    </Suspense>
   );
 }
